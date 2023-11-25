@@ -4,34 +4,32 @@ import discord
 import asyncio
 
 # Environment Variables
-WEBDAV_URL = os.environ.get('WEBDAV_URL')
-WEBDAV_LOGIN = os.environ.get('WEBDAV_LOGIN')
-WEBDAV_PASSWORD = os.environ.get('WEBDAV_PASSWORD')
-DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN')
+webdav_url = os.getenv('WEBDAV_URL')
+webdav_login = os.getenv('WEBDAV_LOGIN')
+webdav_password = os.getenv('WEBDAV_PASSWORD')
+discord_webhook_url = os.getenv('DISCORD_WEBHOOK_URL')
 
-# Connect to WebDAV
-webdav_client = Client(webdav_options)
+# WebDAV Client Setup
+options = {
+    'webdav_hostname': webdav_url,
+    'webdav_login': webdav_login,
+    'webdav_password': webdav_password
+}
+webdav_client = Client(options)
 
-# Discord Bot Configuration
-TOKEN = 'your_discord_bot_token'
-client = discord.Client()
+# Discord Client Setup
+discord_client = discord.Client()
 
-# Function to check for new files
-async def check_for_new_files():
+# Function to monitor WebDAV and post to Discord
+async def monitor_webdav_and_post():
     while True:
-        # List files in WebDAV directory
-        files = webdav_client.list('/')
-        # TODO: Implement logic to determine new or updated files
-        
-        # Placeholder for posting to Discord
-        # TODO: Post notification to Discord channel
+        # Logic to check WebDAV 'coursefolders' directory for changes
+        # Logic to send a Discord notification if changes are detected
+        await asyncio.sleep(300)  # Check every 5 minutes
 
-        # Wait for 5 minutes before next check
-        await asyncio.sleep(300)
-
-@client.event
+@discord_client.event
 async def on_ready():
-    print(f'Logged in as {client.user}')
-    client.loop.create_task(check_for_new_files())
+    print('Logged in as {0.user}'.format(discord_client))
+    discord_client.loop.create_task(monitor_webdav_and_post())
 
-client.run(TOKEN)
+discord_client.run('your_discord_bot_token')
