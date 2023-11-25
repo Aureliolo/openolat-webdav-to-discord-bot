@@ -61,6 +61,31 @@ def send_discord_notification(file_info, is_updated=False):
     except requests.RequestException as e:
         logging.error(f"Error sending message to Discord: {e}")
 
+def is_file(element):
+    # If the 'resourcetype' tag contains 'collection', it's a directory
+    resourcetype = element.find('.//{DAV:}resourcetype')
+    if resourcetype is not None and resourcetype.find('{DAV:}collection') is None:
+        return True  # It's a file
+    return False  # It's a directory or something else
+
+# Function to get file metadata from the WebDAV response element
+def get_file_metadata(element):
+    file_metadata = {}
+    file_metadata['href'] = element.find('{DAV:}href').text
+    file_metadata['creationdate'] = element.find('.//{DAV:}creationdate').text
+    file_metadata['getlastmodified'] = element.find('.//{DAV:}getlastmodified').text
+    file_metadata['getcontentlength'] = element.find('.//{DAV:}getcontentlength').text
+    return file_metadata
+
+# Function to process the WebDAV response and extract files metadata
+def process_webdav_response(response_content):
+    root = ElementTree.fromstring(response_content)
+    files_metadata = []
+    for element in root.findall('{DAV:}response'):
+        if is_file(element):
+            files_metadata.append(get_file_metadata(element))
+    return files_metadata
+
 # Function to fetch and process files from WebDAV
 async def fetch_and_process_webdav_files():
     while True:
