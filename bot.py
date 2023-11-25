@@ -7,6 +7,7 @@ from xml.etree import ElementTree
 from datetime import datetime
 import json
 import logging
+from requests.auth import HTTPDigestAuth
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
@@ -64,7 +65,7 @@ def send_discord_notification(file_info, is_updated=False):
 async def fetch_and_process_webdav_files():
     while True:
         try:
-            response = requests.request("PROPFIND", webdav_url + coursefolders_path, auth=(webdav_login, webdav_password))
+            response = requests.request("PROPFIND", webdav_url + '/' + coursefolders_path, auth=HTTPDigestAuth(webdav_login, webdav_password))
             if response.status_code == 207:
                 root = ElementTree.fromstring(response.content)
                 for response_elem in root.findall('{DAV:}response'):
