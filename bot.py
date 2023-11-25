@@ -14,7 +14,7 @@ discord_webhook_url = os.getenv('DIRSCORD_WEBHOOK')
 coursefolders_path = os.getenv('COURSEFOLDERS_PATH')  
 
 # Database Setup
-db_connection = sqlite3.connect('files.db')
+db_connection = sqlite3.connect('database/files.db')
 db_cursor = db_connection.cursor()
 
 # Create table if it doesn't exist
@@ -30,8 +30,10 @@ db_cursor.execute('''
 ''')
 db_connection.commit()
 
-# Discord Client Setup
-discord_client = discord.Client()
+# Define the intents
+intents = discord.Intents.default()
+# Initialize the Discord client with intents
+discord_client = discord.Client(intents=intents)
 
 # Function to send Discord notification
 async def send_discord_notification(file_info, is_updated=False):
