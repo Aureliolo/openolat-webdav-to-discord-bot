@@ -18,7 +18,7 @@ COPY . .
 #ENV COURSEFOLDERS_PATH=your_root_folder_to_watch
 #ENV WEBDAV_LOGIN=your_username
 #ENV WEBDAV_PASSWORD=your_password
-#ENV DIRSCORD_WEBHOOK=your_discord_bot_webhook
+#ENV DISCORD_WEBHOOK=your_discord_bot_webhook
 
 # Run the bot when the container launches
 CMD ["python", "./bot.py"]
