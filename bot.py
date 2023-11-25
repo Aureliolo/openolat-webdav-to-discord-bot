@@ -1,130 +1,121 @@
+import logging
 import os
 import sqlite3
-import asyncio
-import requests
-import discord
-from xml.etree import ElementTree
-from datetime import datetime
-import json
-import logging
+import time
+import xml.etree.ElementTree as ET
 from requests.auth import HTTPDigestAuth
+import requests
+import json
+from urllib.parse import unquote
 
-# Logging configuration
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s: %(message)s')
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 
-# Environment Variables
-webdav_url = os.getenv('WEBDAV_URL')
-webdav_login = os.getenv('WEBDAV_LOGIN')
-webdav_password = os.getenv('WEBDAV_PASSWORD')
-discord_webhook_url = os.getenv('DISCORD_WEBHOOK')
-coursefolders_path = os.getenv('COURSEFOLDERS_PATH') 
+# Constants and global variables
+webdav_url = os.getenv("WEBDAV_URL")
+webdav_login = os.getenv("WEBDAV_LOGIN")
+webdav_password = os.getenv("WEBDAV_PASSWORD")
+discord_webhook = os.getenv("DISCORD_WEBHOOK")
+visited_directories = set()
 
-# Database Setup
-try:
-    db_connection = sqlite3.connect('database/files.db')
-    db_cursor = db_connection.cursor()
-    logging.info("Connected to SQLite database")
-except sqlite3.Error as e:
-    logging.error(f"SQLite error: {e}")
+# SQLite connection
+conn = sqlite3.connect('files.db')
+cursor = conn.cursor()
 
-# Create table if it doesn't exist
-try:
-    db_cursor.execute('''
-        CREATE TABLE IF NOT EXISTS files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            file_name TEXT,
-            file_url TEXT,
-            timestamp TEXT,
-            author TEXT,
-            status TEXT
-        )
-    ''')
-    db_connection.commit()
-    logging.info("SQLite table 'files' is ready")
-except sqlite3.Error as e:
-    logging.error(f"SQLite table creation error: {e}")
-
-# Function to send Discord notification
-def send_discord_notification(file_info, is_updated=False):
-    message_content = {
-        "content": f"{'Updated' if is_updated else 'New'} file detected:\n"
-                   f"Name: {file_info['file_name']}\n"
-                   f"URL: {file_info['file_url']}\n"
-                   f"Timestamp: {file_info['timestamp']}\n"
+def post_to_discord(message, file_path=None):
+    """
+    Post a message to Discord.
+    """
+    headers = {
+        "Content-Type": "application/json"
     }
-    try:
-        response = requests.post(discord_webhook_url, data=json.dumps(message_content), headers={'Content-Type': 'application/json'})
-        if response.status_code != 204:
-            logging.warning(f"Failed to send message to Discord: {response.status_code}, {response.text}")
-        else:
-            logging.info("Message sent to Discord successfully")
-    except requests.RequestException as e:
-        logging.error(f"Error sending message to Discord: {e}")
+    payload = {
+        "content": message
+    }
+    if file_path:
+        files = {'file': open(file_path, 'rb')}
+        response = requests.post(discord_webhook, data=payload, headers=headers, files=files)
+    else:
+        response = requests.post(discord_webhook, data=json.dumps(payload), headers=headers)
+    
+    if response.status_code != 204:
+        logging.error(f"Failed to send message to Discord: {response.status_code}, {response.text}")
 
-def is_file(element):
-    # If the 'resourcetype' tag contains 'collection', it's a directory
-    resourcetype = element.find('.//{DAV:}resourcetype')
-    if resourcetype is not None and resourcetype.find('{DAV:}collection') is None:
-        return True  # It's a file
-    return False  # It's a directory or something else
+def process_webdav_directory(relative_path):
+    """
+    Process a given directory in the WebDAV server.
+    """
+    # Correct the path if it starts with 'webdav/'
+    corrected_path = relative_path[len('webdav/'):] if relative_path.startswith('webdav/') else relative_path
 
-# Function to get file metadata from the WebDAV response element
-def get_file_metadata(element):
-    file_metadata = {}
-    file_metadata['href'] = element.find('{DAV:}href').text
-    file_metadata['creationdate'] = element.find('.//{DAV:}creationdate').text
-    file_metadata['getlastmodified'] = element.find('.//{DAV:}getlastmodified').text
-    file_metadata['getcontentlength'] = element.find('.//{DAV:}getcontentlength').text
-    return file_metadata
+    if corrected_path in visited_directories:
+        return  # Skip processing if already visited
 
-# Function to process the WebDAV response and extract files metadata
-def process_webdav_response(response_content):
-    root = ElementTree.fromstring(response_content)
-    files_metadata = []
-    for element in root.findall('{DAV:}response'):
-        if is_file(element):
-            files_metadata.append(get_file_metadata(element))
-    return files_metadata
+    visited_directories.add(corrected_path)
+    full_url = f"{webdav_url}/{corrected_path.lstrip('/')}"
+    logging.debug(f"Accessing WebDAV URL: {full_url}")
+    response = requests.request(
+        "PROPFIND",
+        full_url,
+        auth=HTTPDigestAuth(webdav_login, webdav_password),
+        headers={'Depth': '1'}
+    )
 
-# Function to fetch and process files from WebDAV
-async def fetch_and_process_webdav_files():
-    while True:
-        try:
-            response = requests.request("PROPFIND", webdav_url + '/' + coursefolders_path, auth=HTTPDigestAuth(webdav_login, webdav_password))
-            if response.status_code == 207:
-                root = ElementTree.fromstring(response.content)
-                for response_elem in root.findall('{DAV:}response'):
-                    href = response_elem.find('{DAV:}href').text
-                    creationdate = response_elem.find('.//{DAV:}creationdate').text
-                    displayname = response_elem.find('.//{DAV:}displayname').text
+    if response.status_code != 207:
+        logging.error(f"Failed to access WebDAV directory: {relative_path} with status code {response.status_code}")
+        return
 
-                    file_info = {'file_name': displayname, 'file_url': webdav_url + href, 'timestamp': creationdate, 'author': 'N/A'}
-                    db_cursor.execute('SELECT * FROM files WHERE file_name = ?', (file_info['file_name'],))
-                    db_file = db_cursor.fetchone()
+    root = ET.fromstring(response.content)
+    for response_elem in root.findall('{DAV:}response'):
+        href = response_elem.find('{DAV:}href').text
+        resourcetype = response_elem.find('.//{DAV:}resourcetype')
 
-                    if db_file:
-                        if db_file[3] != file_info['timestamp']:  # Compare timestamps
-                            db_cursor.execute('UPDATE files SET timestamp = ?, status = ? WHERE id = ?', (file_info['timestamp'], 'updated', db_file[0]))
-                            db_connection.commit()
-                            logging.info(f"File updated in database: {file_info['file_name']}")
-                            send_discord_notification(file_info, is_updated=True)
-                    else:
-                        db_cursor.execute('INSERT INTO files (file_name, file_url, timestamp, author, status) VALUES (?, ?, ?, ?, ?)', 
-                                          (file_info['file_name'], file_info['file_url'], file_info['timestamp'], file_info['author'], 'new'))
-                        db_connection.commit()
-                        logging.info(f"New file added to database: {file_info['file_name']}")
-                        send_discord_notification(file_info)
-            else:
-                logging.error(f"Error fetching WebDAV files: HTTP {response.status_code}")
-        except Exception as e:
-            logging.error(f"Error in fetch_and_process_webdav_files: {e}")
-        await asyncio.sleep(900)  # 15 minutes interval
+        if resourcetype is not None and len(resourcetype):  # Directory
+            relative_href = href.replace(webdav_url, '').lstrip('/')
+            process_webdav_directory(relative_href)
+        else:  # File
+            file_name = unquote(href.split('/')[-1])
+            logging.debug(f"Found file: {file_name}")
+            post_to_discord(f"New file detected:\nName: {file_name}\nURL: {webdav_url}{href}")
+            # Additional logic for SQLite and other operations can be included here
+def initialize_database():
+    """
+    Initialize the SQLite database.
+    """
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS files (
+        id INTEGER PRIMARY KEY,
+        name TEXT,
+        path TEXT,
+        last_modified TEXT
+    )
+    ''')
+    conn.commit()
 
-# Main logic to start the process
-async def main():
-    await fetch_and_process_webdav_files()
+def record_file_in_database(file_path, last_modified):
+    """
+    Record a file's details in the SQLite database.
+    """
+    cursor.execute('''
+    INSERT INTO files (name, path, last_modified) VALUES (?, ?, ?)
+    ''', (os.path.basename(file_path), file_path, last_modified))
+    conn.commit()
 
-# Run the main function
+def main():
+    """
+    Main function to start the WebDAV processing.
+    """
+    logging.info("Starting WebDAV directory processing")
+    initialize_database()
+    process_webdav_directory('coursefolders')  # Replace with your base directory
+
+    # Add any other necessary logic here
+
 if __name__ == "__main__":
-    logging.info("Starting WebDAV to Discord bot")
-    asyncio.run(main())
+    try:
+        main()
+    except KeyboardInterrupt:
+        logging.info("Script interrupted by user")
+    finally:
+        conn.close()
+
