@@ -3,6 +3,7 @@ import sqlite3
 import asyncio
 import requests
 import discord
+import json
 from xml.etree import ElementTree
 from datetime import datetime
 
@@ -31,21 +32,26 @@ db_cursor.execute('''
 db_connection.commit()
 
 # Define the intents
-intents = discord.Intents.default()
+#intents = discord.Intents.default()
 # Initialize the Discord client with intents
-discord_client = discord.Client(intents=intents)
+#discord_client = discord.Client(intents=intents)
 
-# Function to send Discord notification
 async def send_discord_notification(file_info, is_updated=False):
     # Create Discord message content
-    message_content = f"{'Updated' if is_updated else 'New'} file detected:\n"
-    message_content += f"Name: {file_info['file_name']}\n"
-    message_content += f"URL: {file_info['file_url']}\n"
-    message_content += f"Timestamp: {file_info['timestamp']}\n"
+    message_content = {
+        "content": f"{'Updated' if is_updated else 'New'} file detected:\n"
+                   f"Name: {file_info['file_name']}\n"
+                   f"URL: {file_info['file_url']}\n"
+                   f"Timestamp: {file_info['timestamp']}\n"
+    }
 
-    # Send message to Discord
-    discord_webhook = discord.Webhook.from_url(discord_webhook_url, adapter=discord.RequestsWebhookAdapter())
-    await discord_webhook.send(content=message_content)
+    # Send POST request to Discord webhook URL
+    webhook_url = os.getenv('DISCORD_WEBHOOK')
+    response = requests.post(webhook_url, data=json.dumps(message_content), headers={'Content-Type': 'application/json'})
+
+    # Check response
+    if response.status_code != 204:
+        print(f"Failed to send message to Discord: {response.status_code}, {response.text}")
 
 # Function to determine if a response element is a file
 def is_file(element):
@@ -103,10 +109,10 @@ async def fetch_and_process_webdav_files():
             print(f"Error: {e}")
         await asyncio.sleep(900)  # 15 minutes interval
 
-# Discord event and client run logic
-@discord_client.event
-async def on_ready():
-    print('Logged in as {0.user}'.format(discord_client))
-    discord_client.loop.create_task(fetch_and_process_webdav_files())
+# Main logic to start the process
+async def main():
+    await fetch_and_process_webdav_files()
 
-discord_client.run('YOUR_DISCORD_BOT_TOKEN')
+# Run the main function
+if __name__ == "__main__":
+    asyncio.run(main())
