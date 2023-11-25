@@ -15,9 +15,10 @@ COPY . .
 
 # Set environment variables in .env file or on CLI. or uncomment here and write directly into it.
 #ENV WEBDAV_URL=your_webdav_url
+#ENV COURSEFOLDERS_PATH=your_root_folder_to_watch
 #ENV WEBDAV_LOGIN=your_username
 #ENV WEBDAV_PASSWORD=your_password
-#ENV DISCORD_TOKEN=your_discord_bot_token
+#ENV DIRSCORD_WEBHOOK=your_discord_bot_webhook
 
 # Run the bot when the container launches
 CMD ["python", "./bot.py"]
