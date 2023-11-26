@@ -62,17 +62,24 @@ def get_parent_folders(path, base_path):
         return ' -> '.join(folders[:-1])
     return "Root"
 
-def notify_discord_new_folder(path):
-    """Send a notification to Discord about a new folder."""
-    foldername = os.path.basename(path)
-    parent_info = get_parent_folders(path, coursefolders_path)
-    if foldername:
-        message = f"New folder detected:\nName: {foldername}\nParent Folders: {parent_info}"
-        response = requests.post(discord_webhook, json={"content": message})
-        if response.status_code == 204:
-            logging.info(f"Notification sent to Discord for new folder: {foldername}")
-        else:
-            logging.error(f"Failed to send folder notification to Discord: {response.status_code}, {response.text}")
+def notify_discord_new_folder(folder_path):
+    # Remove the base path from the folder path
+    display_path = folder_path.replace(coursefolders_path, '').lstrip('/').rstrip('/')
+    if not display_path:  # Skip notification if the path is just the base path
+        return
+
+    # Construct the message for Discord
+    message = {
+        "content": f"New folder detected: {display_path}"
+    }
+
+    # Send the notification to Discord
+    discord_response = requests.post(discord_webhook, json=message)
+    if discord_response.status_code in [200, 204]:
+        logging.info(f"Notification sent to Discord for new folder: {display_path}")
+    else:
+        logging.error(f"Failed to send folder notification to Discord: {discord_response.status_code}, {discord_response.text}")
+
 
 def get_folder_path(path, base_path):
     """Return the folder path excluding the base path."""
@@ -102,7 +109,7 @@ def notify_discord_new_file(path):
 
         # Sending the message
         discord_response = requests.post(discord_webhook, data=message, files=files)
-        if discord_response.status_code == 204:
+        if discord_response.status_code in [200, 204]:
             logging.info(f"Notification sent to Discord for new file: {filename}")
         else:
             logging.error(f"Failed to send file notification to Discord: {discord_response.status_code}, {discord_response.text}")
