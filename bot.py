@@ -15,7 +15,7 @@ discord_webhook = os.getenv("DISCORD_WEBHOOK")
 coursefolders_path = os.getenv("COURSEFOLDERS_PATH")
 
 # Logging configuration
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 #logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 # Database initialization
 conn = sqlite3.connect('/usr/src/app/database/files.db')
@@ -38,6 +38,7 @@ cursor.execute('''
 
 conn.commit()
 def get_webdav_items(path):
+    logging.debug(f"Getting WebDAV items for path: {path}")
     """Retrieve items from a WebDAV directory."""
     url = f"{webdav_url}/{path}"
     response = requests.request("PROPFIND", url, auth=HTTPDigestAuth(webdav_login, webdav_password), headers={'Depth': '1'})
@@ -111,23 +112,31 @@ def notify_discord_new_file(path):
     else:
         logging.error(f"Failed to download file for Discord notification: {response.status_code}, {response.text}")
 
+
 def process_webdav_directory(relative_path, processed_paths):
-    """Process a WebDAV directory, checking for new files and directories."""
+    logging.debug(f"Entering directory: {relative_path}")
     if relative_path in processed_paths:
+        logging.debug(f"Already processed: {relative_path}")
         return
     processed_paths.add(relative_path)
 
     items = get_webdav_items(relative_path)
     for href, is_directory in items:
         corrected_path = urllib.parse.unquote(href.replace(webdav_url, '').lstrip('/'))
+        logging.debug(f"Found item: {corrected_path}, Is directory: {is_directory}")
+
         if corrected_path == relative_path or corrected_path in processed_paths:
+            logging.debug(f"Skipping: {corrected_path}")
             continue
 
+        # Adjusted to handle path correctly
+        if corrected_path.startswith('webdav/'):
+            corrected_path = corrected_path[len('webdav/'):]
+
         if is_directory:
-            # This check avoids reprocessing the same folder
+            logging.debug(f"Processing subdirectory: {corrected_path}")
             if corrected_path not in processed_paths:
                 notify_discord_new_folder(corrected_path)
-                processed_paths.add(corrected_path)
 
             process_webdav_directory(corrected_path, processed_paths)
         else:
@@ -135,6 +144,7 @@ def process_webdav_directory(relative_path, processed_paths):
 
 
 def process_file(path):
+    logging.debug(f"Processing file: {path}")
     """Process a single file, checking if it's new or updated."""
     url = f"{webdav_url}/{path}"
     response = requests.head(url, auth=HTTPDigestAuth(webdav_login, webdav_password))
@@ -174,12 +184,10 @@ def main():
     processed_paths = set()
     process_webdav_directory(coursefolders_path, processed_paths)
 
+
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        logging.error(f"Script encountered an error: {e}")
-    finally:
-        cursor.close()
-        conn.close()
+        logging.error(f"An error occurred: {e}")
 
