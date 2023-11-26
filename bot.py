@@ -1,3 +1,4 @@
+
 import os
 import logging
 import sqlite3
@@ -16,11 +17,30 @@ coursefolders_path = os.getenv("COURSEFOLDERS_PATH")
 
 # Logging configuration
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-#logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+# Session initialization for preemptive digest authentication
+def initialize_session():
+    global session
+    session = requests.Session()
+    session.auth = HTTPDigestAuth(webdav_login, webdav_password)
+
+# Initialize session
+initialize_session()
+
+# Function to handle requests with session checks
+def make_authenticated_request(method, url, **kwargs):
+    global session
+    response = session.request(method, url, **kwargs)
+    if response.status_code == 401:
+        initialize_session()
+        response = session.request(method, url, **kwargs)
+        if response.status_code == 401:
+            raise Exception("Failed to re-authenticate")
+    return response
+
 # Database initialization
 conn = sqlite3.connect('/usr/src/app/database/files.db')
 cursor = conn.cursor()
-# Create files table
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS files (
         path TEXT PRIMARY KEY,
@@ -37,11 +57,11 @@ cursor.execute('''
 ''')
 
 conn.commit()
+
 def get_webdav_items(path):
     logging.debug(f"Getting WebDAV items for path: {path}")
-    """Retrieve items from a WebDAV directory."""
     url = f"{webdav_url}/{path}"
-    response = requests.request("PROPFIND", url, auth=HTTPDigestAuth(webdav_login, webdav_password), headers={'Depth': '1'})
+    response = make_authenticated_request("PROPFIND", url, headers={'Depth': '1'})
     if response.status_code != 207:
         logging.error(f"Failed to access WebDAV directory: {path} with status code {response.status_code}")
         return []
@@ -80,7 +100,6 @@ def notify_discord_new_folder(folder_path):
     else:
         logging.error(f"Failed to send folder notification to Discord: {discord_response.status_code}, {discord_response.text}")
 
-
 def get_folder_path(path, base_path):
     """Return the folder path excluding the base path."""
     if path.startswith(base_path):
@@ -94,7 +113,7 @@ def notify_discord_new_file(path):
     filename = os.path.basename(path)
 
     # Download the file to attach it to Discord
-    response = requests.get(file_url, auth=HTTPDigestAuth(webdav_login, webdav_password))
+    response = make_authenticated_request("GET", file_url)
     if response.status_code == 200:
         with open(filename, 'wb') as f:
             f.write(response.content)
@@ -149,13 +168,11 @@ def process_webdav_directory(relative_path, processed_paths):
         else:
             process_file(corrected_path)
 
-
 def process_file(path):
     logging.debug(f"Processing file: {path}")
-    """Process a single file, checking if it's new or updated."""
     url = f"{webdav_url}/{path}"
-    response = requests.head(url, auth=HTTPDigestAuth(webdav_login, webdav_password))
-    
+    response = make_authenticated_request("HEAD", url)
+
     if response.status_code != 200:
         logging.error(f"Failed to access file: {path} with status code {response.status_code}")
         return
@@ -172,7 +189,7 @@ def process_file(path):
         # File updated
         notify_discord_updated_file(path)
         cursor.execute("UPDATE files SET last_modified = ? WHERE path = ?", (last_modified, path))
-    
+
     conn.commit()
 
 def notify_discord_updated_file(path):
@@ -187,14 +204,19 @@ def notify_discord_updated_file(path):
         logging.error(f"Failed to send file notification to Discord: {discord_response.status_code}, {discord_response.text}")
     os.remove(filename)
 
-def main():
-    processed_paths = set()
-    process_webdav_directory(coursefolders_path, processed_paths)
 
+def main():
+    while True:
+        processed_paths = set()
+        process_webdav_directory(coursefolders_path, processed_paths)
+
+        logging.info("Waiting for 30 minutes before next run.")
+        time.sleep(1800)  # Wait for 1800 seconds (30 minutes)
 
 if __name__ == "__main__":
     try:
         main()
+    except KeyboardInterrupt:
+        logging.info("Script interrupted by user")
     except Exception as e:
         logging.error(f"An error occurred: {e}")
-
