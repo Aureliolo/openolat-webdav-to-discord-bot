@@ -16,7 +16,7 @@ discord_webhook = os.getenv("DISCORD_WEBHOOK")
 coursefolders_path = os.getenv("COURSEFOLDERS_PATH")
 
 # Logging configuration
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Session initialization for preemptive digest authentication
 def initialize_session():
