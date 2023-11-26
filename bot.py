@@ -88,6 +88,13 @@ def notify_discord_new_folder(folder_path):
     if not display_path:  # Skip notification if the path is just the base path
         return
 
+    # Check if the folder is already in the database
+    cursor.execute("SELECT path FROM folders WHERE path = ?", (folder_path,))
+    if cursor.fetchone() is not None:
+        # Folder already processed
+        logging.debug(f"Folder already processed: {folder_path}")
+        return
+
     # Construct the message for Discord
     message = {
         "content": f"New folder detected: {display_path}"
@@ -97,6 +104,9 @@ def notify_discord_new_folder(folder_path):
     discord_response = requests.post(discord_webhook, json=message)
     if discord_response.status_code in [200, 204]:
         logging.info(f"Notification sent to Discord for new folder: {display_path}")
+        # Record the folder in the database
+        cursor.execute("INSERT INTO folders (path) VALUES (?)", (folder_path,))
+        conn.commit()
     else:
         logging.error(f"Failed to send folder notification to Discord: {discord_response.status_code}, {discord_response.text}")
 
@@ -210,8 +220,8 @@ def main():
         processed_paths = set()
         process_webdav_directory(coursefolders_path, processed_paths)
 
-        logging.info("Waiting for 30 minutes before next run.")
-        time.sleep(1800)  # Wait for 1800 seconds (30 minutes)
+        logging.info("Waiting for 15 minutes before next run.")
+        time.sleep(900)  # Wait for 900 seconds (30 minutes)
 
 if __name__ == "__main__":
     try:
