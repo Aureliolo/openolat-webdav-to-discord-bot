@@ -116,7 +116,7 @@ def get_folder_path(path, base_path):
         path = path[len(base_path):].lstrip('/')
     return os.path.dirname(path)
 
-def notify_discord_new_file(path, last_modified):
+def notify_discord_new_file(path, last_modified=None):
     """Send a notification to Discord about a new file with the file attached."""
     folder_path = get_folder_path(path, coursefolders_path)
     file_url = f"{webdav_url}/{urllib.parse.quote(path)}"
@@ -192,37 +192,37 @@ def process_file(path):
     result = cursor.fetchone()
 
     if not result:
-        # New file found, log it
-        logging.info(f"New file detected: {path}")
-
-        # Send a notification for the new file
+        # New file, send a notification
+        logging.info(f"New file detected: {path}")        
         notify_discord_new_file(path)
-
-        if last_modified:
-            # File has a modification date
-            cursor.execute("INSERT INTO files (path, last_modified) VALUES (?, ?)", (path, last_modified))
-        else:
-            # File does not have a modification date
-            cursor.execute("INSERT INTO files (path, last_modified) VALUES (?, ?)", (path, "no_modif_Date"))
-    elif last_modified and result[0] != last_modified:
-        # File updated (only if you want to handle updates separately)
-        notify_discord_updated_file(path, last_modified)
-        cursor.execute("UPDATE files SET last_modified = ? WHERE path = ?", (last_modified, path))
+        # Insert into database
+        insert_value = last_modified if last_modified else "no_modif_Date"
+        cursor.execute("INSERT INTO files (path, last_modified) VALUES (?, ?)", (path, insert_value))
+    elif last_modified:
+        if result[0] != last_modified and result[0] != "no_modif_Date":
+            # File updated
+            notify_discord_updated_file(path, last_modified)
+            cursor.execute("UPDATE files SET last_modified = ? WHERE path = ?", (last_modified, path))
 
     conn.commit()
 
 
-def notify_discord_updated_file(path):
+
+def notify_discord_updated_file(path, last_modified=None):
     """Send a notification to Discord about an updated file."""
     filename = os.path.basename(path)
     file_url = f"{webdav_url}/{urllib.parse.quote(path)}"
-    message = f"File updated:\nName: {filename}\nURL: {file_url}\nLast Modified: {last_modified}"
-    discord_response = requests.post(discord_webhook, data=message, files=files)
-    if discord_response.status_code == 200 or discord_response.status_code == 204:
-        logging.info(f"Notification sent to Discord for new file: {filename}")
+    message = {
+        "content": f"File updated: {filename}\nURL: {file_url}\nLast Modified: {last_modified if last_modified else 'Unknown'}"
+    }
+
+    # Sending the message
+    discord_response = requests.post(discord_webhook, json=message)
+    if discord_response.status_code in [200, 204]:
+        logging.info(f"Notification sent to Discord for updated file: {filename}")
     else:
-        logging.error(f"Failed to send file notification to Discord: {discord_response.status_code}, {discord_response.text}")
-    os.remove(filename)
+        logging.error(f"Failed to send updated file notification to Discord: {discord_response.status_code}, {discord_response.text}")
+
 
 
 def main():
