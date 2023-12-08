@@ -209,19 +209,38 @@ def process_file(path):
 
 
 def notify_discord_updated_file(path, last_modified=None):
-    """Send a notification to Discord about an updated file."""
-    filename = os.path.basename(path)
+    """Send a notification to Discord about an updated file with the file attached."""
+    folder_path = get_folder_path(path, coursefolders_path)
     file_url = f"{webdav_url}/{urllib.parse.quote(path)}"
-    message = {
-        "content": f"File updated: {filename}\nURL: {file_url}\nLast Modified: {last_modified if last_modified else 'Unknown'}"
-    }
+    filename = os.path.basename(path)
 
-    # Sending the message
-    discord_response = requests.post(discord_webhook, json=message)
-    if discord_response.status_code in [200, 204]:
-        logging.info(f"Notification sent to Discord for updated file: {filename}")
+    # Download the file to attach it to Discord
+    response = make_authenticated_request("GET", file_url)
+    if response.status_code == 200:
+        with open(filename, 'wb') as f:
+            f.write(response.content)
+
+        # Preparing Discord message
+        last_modified_info = f"\nLast Modified: {last_modified}" if last_modified else ""
+        message_content = f"File updated in folder: {folder_path}\nName: {filename}{last_modified_info}"
+        message = {
+            "content": message_content
+        }
+        files = {
+            "file": (filename, open(filename, 'rb'))
+        }
+
+        # Sending the message
+        discord_response = requests.post(discord_webhook, data=message, files=files)
+        if discord_response.status_code in [200, 204]:
+            logging.info(f"Notification sent to Discord for updated file: {filename}")
+        else:
+            logging.error(f"Failed to send updated file notification to Discord: {discord_response.status_code}, {discord_response.text}")
+
+        # Clean up the downloaded file
+        os.remove(filename)
     else:
-        logging.error(f"Failed to send updated file notification to Discord: {discord_response.status_code}, {discord_response.text}")
+        logging.error(f"Failed to download file for Discord notification: {response.status_code}, {response.text}")
 
 
 
