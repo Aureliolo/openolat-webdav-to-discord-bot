@@ -249,8 +249,8 @@ def main():
         processed_paths = set()
         process_webdav_directory(coursefolders_path, processed_paths)
 
-        logging.info("Waiting for 15 minutes before next run.")
-        time.sleep(900)  # Wait for 900 seconds (30 minutes)
+        logging.info("Waiting for 2.5 minutes before next run.")
+        time.sleep(150)
 
 if __name__ == "__main__":
     try:
